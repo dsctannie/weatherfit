@@ -419,91 +419,81 @@ Read/Write нагрузка
 (старше 1 года) можно выгружать в холодное хранилище (S3/MinIO), 
 но оставлять доступными через представление (view).
 
----
-
 ### 3.2. Архитектурные схемы (C4 Model)
 
-#### Уровень 1. Context (кто с кем общается)
-┌─────────────────────┐
-│ Пользователь │
-│ (браузер) │
-└──────────┬──────────┘
-│
-│ HTTPS / HTML / JSON
-│
-▼
-┌────────────────────────────────────────┐
-│ WeatherFit System │
-│ │
-│ ┌─────────┐ ┌─────────┐ ┌───────┐ │
-│ │ Web UI │ │ Backend │ │ БД │ │
-│ │ (React) │ │(FastAPI)│ │ PG │ │
-│ └─────────┘ └─────────┘ └───────┘ │
-└───────────────┬────────────────────────┘
-│
-│ HTTPS (через Circuit Breaker)
-│
-▼
-┌────────────────────────────────────────┐
-│ Внешние источники │
-│ │
-│ ┌──────────────┐ ┌────────────────┐ │
-│ │ Open-Meteo │ │ Open-Meteo │ │
-│ │ Forecast │ │ Air Quality │ │
-│ └──────────────┘ └────────────────┘ │
-└────────────────────────────────────────┘
+#### Уровень 1. Context — кто с кем общается
 
-text
+```mermaid
+graph TB
+    User["👤 Пользователь<br/>(браузер)"]
+    System["🌤 WeatherFit System<br/>(web + API + БД)"]
+    Forecast["🌦 Open-Meteo Forecast<br/>(погода)"]
+    AirQuality["💨 Open-Meteo Air Quality<br/>(AQI + УФ-индекс)"]
+    SMTP["📧 SMTP / MailHog<br/>(email)"]
 
-**Что здесь:** пользователь в браузере → WeatherFit → внешние API. 
-Никаких других акторов нет.
+    User -->|HTTPS<br/>HTML / JSON| System
+    System -->|HTTPS<br/>через Circuit Breaker| Forecast
+    System -->|HTTPS<br/>через Circuit Breaker| AirQuality
+    System -->|SMTP| SMTP
+```
 
-#### Уровень 2. Container (из чего состоит система)
-┌──────────────────────────────────────────────────────────────────┐
-│ WeatherFit System │
-│ │
-│ ┌───────────────┐ REST/JSON ┌─────────────────────┐ │
-│ │ Web UI │ ───────────────► │ Backend API │ │
-│ │ React + Vite │ ◄─────────────── │ FastAPI (Python) │ │
-│ │ (порт 80) │ │ (порт 8000) │ │
-│ └───────────────┘ └─────┬──────┬────────┘ │
-│ │ │ │
-│ SQL (asyncpg) │ │ Redis │
-│ ▼ ▼ │
-│ ┌──────────┐ ┌─────────┐ │
-│ │PostgreSQL│ │ Redis │ │
-│ │ 16 │ │ cache │ │
-│ │(порт5432)│ │(порт6379│ │
-│ └──────────┘ └─────────┘ │
-│ │
-│ ┌──────────┐ ┌─────────┐ │
-│ │ Celery │ │ MailHog │ │
-│ │ worker + │ │ (SMTP │ │
-│ │ beat │ │ dev) │ │
-│ └──────────┘ └─────────┘ │
-└──────────────────────────────────┬───────────────────────────────┘
-│
-│ HTTPS (Circuit Breaker ×2)
-▼
-┌────────────────────┐
-│ Open-Meteo API×2 │
-│ Forecast + Air Q. │
-└────────────────────┘
+**Что здесь:** пользователь → WeatherFit → два внешних источника 
+данных + SMTP для отправки уведомлений.
 
-text
+#### Уровень 2. Container — из чего состоит система
 
-**Что здесь (по контейнерам):**
+```mermaid
+graph TB
+    subgraph Client["Клиент"]
+        UI["💻 Web UI<br/>React + Vite + Nginx<br/>(порт 80)"]
+    end
+
+    subgraph Server["Сервер"]
+        API["⚙️ Backend API<br/>FastAPI (Python)<br/>(порт 8000)"]
+        Worker["🔄 Celery worker + beat<br/>(фоновые задачи)"]
+    end
+
+    subgraph Storage["Хранилища"]
+        PG[("🐘 PostgreSQL 16<br/>основные данные<br/>(порт 5432)")]
+        Redis[("⚡ Redis 7<br/>кэш внешних ответов<br/>(порт 6379)")]
+    end
+
+    subgraph External["Внешние"]
+        Forecast["🌦 Open-Meteo Forecast"]
+        AirQuality["💨 Open-Meteo Air Quality"]
+        MailHog["📧 MailHog<br/>(SMTP для dev)"]
+    end
+
+    UI -->|REST / JSON| API
+    API -->|SQL asyncpg| PG
+    API -->|Redis protocol| Redis
+    API -->|HTTPS<br/>Circuit Breaker ×2| Forecast
+    API -->|HTTPS<br/>Circuit Breaker ×2| AirQuality
+    API -->|кладёт задачи| Redis
+    Worker -->|забирает задачи| Redis
+    Worker -->|SQL| PG
+    Worker -->|SMTP| MailHog
+
+    style UI fill:#e1f5fe,stroke:#01579b,color:#000
+    style API fill:#fff3e0,stroke:#e65100,color:#000
+    style Worker fill:#fff3e0,stroke:#e65100,color:#000
+    style PG fill:#e8f5e9,stroke:#1b5e20,color:#000
+    style Redis fill:#fce4ec,stroke:#880e4f,color:#000
+    style Forecast fill:#f3e5f5,stroke:#4a148c,color:#000
+    style AirQuality fill:#f3e5f5,stroke:#4a148c,color:#000
+    style MailHog fill:#f3e5f5,stroke:#4a148c,color:#000
+```
+
+**Описание контейнеров:**
 
 | Контейнер | Технология | Роль |
 |---|---|---|
 | Web UI | React + Vite + Nginx | Интерфейс пользователя |
 | Backend API | FastAPI (Python) | Бизнес-логика, REST |
-| PostgreSQL | PostgreSQL 16 | Основное хранилище |
-| Redis | Redis 7 | Кэш внешних ответов |
 | Celery worker + beat | Celery + Redis | Фоновая отправка email |
+| PostgreSQL | PostgreSQL 16 | Основное хранилище |
+| Redis | Redis 7 | Кэш внешних ответов + очередь задач |
 | MailHog | MailHog | SMTP-сервер для dev |
-
----
 
 ### 3.3. Контракты API
 
@@ -529,8 +519,6 @@ text
 - При недоступности внешнего API — `503` с телом `{ "degraded": true, "reason": "..." }`.
 - Rate limit: 60 запросов/мин на IP (через `slowapi`).
 - Полный OpenAPI генерируется FastAPI автоматически на `/docs`.
-
----
 
 ### 3.4. Проектирование данных (ER-диаграмма)
 ┌──────────────────┐ ┌──────────────────────┐
@@ -579,8 +567,6 @@ text
 │ (архив, опц.) │
 └──────────────────────┘
 
-text
-
 #### Обоснование выбранной структуры
 
 **Почему UUID, а не автоинкрементные id?**
@@ -618,8 +604,6 @@ UUID не даёт угадать количество пользователе�
 - На 100 000 DAU (масштабирование) — 46 RPS peak, всё ещё в разы ниже 
   возможностей PostgreSQL с репликами.
 
----
-
 ### 3.5. Масштабирование до 100 000 пользователей/сутки
 
 При росте нагрузки в 10 раз применяем следующие шаги:
@@ -637,8 +621,6 @@ Backend **stateless** (не хранит состояние между запр�
 ┌───────┐ ┌───────┐ ┌───────┐
 │back-1 │ │back-2 │ │back-N │
 └───────┘ └───────┘ └───────┘
-
-text
 
 #### 2. Кэш внешних запросов — обязательно
 Open-Meteo имеет лимит ~10 000 запросов/сутки с одного IP. 
@@ -673,7 +655,6 @@ React-сборка отдаётся через CDN. Backend отдаёт тол�
 По месяцам. Раз в месяц создаётся новая партиция (скриптом). 
 Партиции старше 1 года → архивируются, но остаются доступными.
 
----
 
 ### 3.6. Итоговая схема развёртывания (docker-compose)
 ┌────────────────────────────────────────────────────────────┐
@@ -689,8 +670,6 @@ React-сборка отдаётся через CDN. Backend отдаёт тол�
 │ │ :8025 │ │ :5432 │ │ :6379 │ │
 │ └──────────┘ └──────────┘ └──────────┘ │
 └────────────────────────────────────────────────────────────┘
-
-text
 
 Запуск: `docker compose up --build` — одна команда, как требует 
 задание.
