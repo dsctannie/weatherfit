@@ -425,11 +425,11 @@ Read/Write нагрузка
 
 ```mermaid
 graph TB
-    User["👤 Пользователь<br/>(браузер)"]
-    System["🌤 WeatherFit System<br/>(web + API + БД)"]
-    Forecast["🌦 Open-Meteo Forecast<br/>(погода)"]
-    AirQuality["💨 Open-Meteo Air Quality<br/>(AQI + УФ-индекс)"]
-    SMTP["📧 SMTP / MailHog<br/>(email)"]
+    User[" Пользователь<br/>(браузер)"]
+    System[" WeatherFit System<br/>(web + API + БД)"]
+    Forecast[" Open-Meteo Forecast<br/>(погода)"]
+    AirQuality[" Open-Meteo Air Quality<br/>(AQI + УФ-индекс)"]
+    SMTP[" SMTP / MailHog<br/>(email)"]
 
     User -->|HTTPS<br/>HTML / JSON| System
     System -->|HTTPS<br/>через Circuit Breaker| Forecast
@@ -445,23 +445,23 @@ graph TB
 ```mermaid
 graph TB
     subgraph Client["Клиент"]
-        UI["💻 Web UI<br/>React + Vite + Nginx<br/>(порт 80)"]
+        UI[" Web UI<br/>React + Vite + Nginx<br/>(порт 80)"]
     end
 
     subgraph Server["Сервер"]
-        API["⚙️ Backend API<br/>FastAPI (Python)<br/>(порт 8000)"]
-        Worker["🔄 Celery worker + beat<br/>(фоновые задачи)"]
+        API[" Backend API<br/>FastAPI (Python)<br/>(порт 8000)"]
+        Worker[" Celery worker + beat<br/>(фоновые задачи)"]
     end
 
     subgraph Storage["Хранилища"]
-        PG[("🐘 PostgreSQL 16<br/>основные данные<br/>(порт 5432)")]
-        Redis[("⚡ Redis 7<br/>кэш внешних ответов<br/>(порт 6379)")]
+        PG[(" PostgreSQL 16<br/>основные данные<br/>(порт 5432)")]
+        Redis[(" Redis 7<br/>кэш внешних ответов<br/>(порт 6379)")]
     end
 
     subgraph External["Внешние"]
-        Forecast["🌦 Open-Meteo Forecast"]
-        AirQuality["💨 Open-Meteo Air Quality"]
-        MailHog["📧 MailHog<br/>(SMTP для dev)"]
+        Forecast[" Open-Meteo Forecast"]
+        AirQuality[" Open-Meteo Air Quality"]
+        MailHog[" MailHog<br/>(SMTP для dev)"]
     end
 
     UI -->|REST / JSON| API
@@ -521,88 +521,94 @@ graph TB
 - Полный OpenAPI генерируется FastAPI автоматически на `/docs`.
 
 ### 3.4. Проектирование данных (ER-диаграмма)
-┌──────────────────┐ ┌──────────────────────┐
-│ users │ │ workouts │
-├──────────────────┤ ├──────────────────────┤
-│ id (PK, UUID) │────┐ │ id (PK, UUID) │
-│ email (UQ) │ │ │ user_id (FK) ────────┼──┐
-│ password_hash │ └───►│ sport │ │
-│ city │ │ started_at │ │
-│ lat │ │ duration_min │ │
-│ lon │ │ weather_snapshot │ │
-│ sport_prefs │ │ (JSONB) │ │
-│ temp_min │ │ created_at │ │
-│ temp_max │ └──────────────────────┘ │
-│ created_at │ │
-└──────────────────┘ │
-│
-┌──────────────────┐ ┌──────────────────────┐ │
-│ plans │ │ subscriptions │ │
-├──────────────────┤ ├──────────────────────┤ │
-│ id (PK, UUID) │────┐ │ id (PK, UUID) │ │
-│ user_id (FK) ────┼────┼───►│ plan_id (FK) │ │
-│ created_at │ │ │ window_index │ │
-│ payload (JSONB) │ │ │ window_start │ │
-│ degraded (bool) │ │ │ window_end │ │
-│ degraded_reason │ │ │ notified_at │ │
-└──────────────────┘ │ │ status │ │
-│ └──────────────────────┘ │
-│ │
-│ ┌──────────────────────┐ │
-│ │ weather_log │ │
-│ ├──────────────────────┤ │
-└───►│ id (PK, BIGSERIAL) │ │
-│ lat │ │
-│ lon │ │
-│ source (enum) │ │
-│ date │ │
-│ payload (JSONB) │ │
-│ created_at │ │
-└──────────────────────┘ │
-партиции по created_at │
-(RANGE, помесячно) │
-│
-┌──────────────────────┐ │
-│ deleted_workouts │◄─┘
-│ (архив, опц.) │
-└──────────────────────┘
+
+```mermaid
+erDiagram
+    USERS ||--o{ WORKOUTS : "has"
+    USERS ||--o{ PLANS : "creates"
+    PLANS ||--o{ SUBSCRIPTIONS : "contains"
+
+    USERS {
+        uuid id PK
+        string email UK
+        string password_hash
+        string city
+        float lat
+        float lon
+        jsonb sport_prefs
+        float temp_min
+        float temp_max
+        timestamp created_at
+    }
+
+    WORKOUTS {
+        uuid id PK
+        uuid user_id FK
+        string sport
+        timestamp started_at
+        int duration_min
+        jsonb weather_snapshot
+        timestamp created_at
+    }
+
+    PLANS {
+        uuid id PK
+        uuid user_id FK
+        timestamp created_at
+        jsonb payload
+        bool degraded
+        string degraded_reason
+    }
+
+    SUBSCRIPTIONS {
+        uuid id PK
+        uuid plan_id FK
+        int window_index
+        timestamp window_start
+        timestamp window_end
+        timestamp notified_at
+        string status
+    }
+
+    WEATHER_LOG {
+        bigserial id PK
+        float lat
+        float lon
+        string source
+        date date
+        jsonb payload
+        timestamp created_at
+    }
+```
 
 #### Обоснование выбранной структуры
 
-**Почему UUID, а не автоинкрементные id?**
-UUID не даёт угадать количество пользователей и защищает от IDOR-атак. 
-Для БД 10 000+ пользователей — стандарт.
+**UUID вместо автоинкрементных id:** не позволяет угадать количество 
+пользователей, защищает от IDOR-атак.
 
-**Почему `payload JSONB` в plans, а не отдельные колонки?**
-План — это вложенная структура (дни → окна → факторы). Хранить её 
-в JSONB проще, чем раскладывать на 5 таблиц. При этом PostgreSQL JSONB 
-поддерживает индексы GIN для быстрого поиска.
+**JSONB для `plans.payload`:** план — вложенная структура (дни → окна → 
+факторы). Раскладывать на 5 таблиц избыточно. PostgreSQL JSONB поддерживает 
+GIN-индексы для быстрого поиска.
 
-**Почему `weather_log` партиционирована?**
-Основной объём данных (164 GB за 5 лет). Партиции по месяцам позволяют:
-- быстро удалять старые данные (`DROP PARTITION`, а не `DELETE`),
-- параллелить запросы между партициями,
-- ускорять запросы по диапазону дат.
+**Партиционирование `weather_log`:** основной объём данных (164 GB за 5 лет). 
+Партиции по месяцам позволяют быстро удалять старые данные 
+(`DROP PARTITION`) и параллелить запросы.
 
 #### Индексы и обоснование
 
 | Таблица | Индекс | Тип | Зачем |
 |---|---|---|---|
-| users | `email` | UNIQUE B-tree | Поиск при логине — O(log n) |
-| workouts | `(user_id, started_at DESC)` | составной B-tree | История пользователя с сортировкой |
-| plans | `(user_id, created_at DESC)` | составной B-tree | Последний план пользователя |
-| subscriptions | `(plan_id, notified_at)` | составной B-tree | Поиск необработанных подписок воркером |
-| subscriptions | `(window_start)` | B-tree | Celery beat выбирает окна, стартующие в ближайшие 2 ч |
-| weather_log | `(lat, lon, source, date)` | составной B-tree | Поиск кэш-записи |
-| plans | `payload` | GIN | Поиск по вложенным полям JSONB |
+| users | email | UNIQUE B-tree | Поиск при логине — O(log n) |
+| workouts | (user_id, started_at DESC) | составной B-tree | История с сортировкой |
+| plans | (user_id, created_at DESC) | составной B-tree | Последний план |
+| subscriptions | (plan_id, notified_at) | составной B-tree | Необработанные подписки |
+| subscriptions | (window_start) | B-tree | Celery выбирает окна на 2 ч |
+| weather_log | (lat, lon, source, date) | составной B-tree | Поиск кэш-записи |
+| plans | payload | GIN | Поиск по вложенным полям |
 
-**Расчёт: почему выдержат нагрузку.**
-- Peak 4.6 RPS — это очень мало. Один инстанс PostgreSQL 
-  на SSD справляется с 5 000+ RPS на чтение.
-- 95% чтений уходят в Redis и read replicas.
-- Запись 5% (≈ 0.23 RPS в пике) — вообще не проблема для одной ноды.
-- На 100 000 DAU (масштабирование) — 46 RPS peak, всё ещё в разы ниже 
-  возможностей PostgreSQL с репликами.
+**Почему выдержат нагрузку:** peak 4.6 RPS — очень мало. 95% чтений 
+уходят в Redis и read replicas. Запись 5% (≈0.23 RPS) — не проблема 
+для одной ноды PostgreSQL.
 
 ### 3.5. Масштабирование до 100 000 пользователей/сутки
 
@@ -611,17 +617,23 @@ UUID не даёт угадать количество пользователе�
 #### 1. Backend — горизонтальное масштабирование
 Backend **stateless** (не хранит состояние между запросами), поэтому 
 можно запустить N реплик за Nginx/HAProxy. Сессии — в JWT, не в памяти.
-┌─────────────┐
-│ Nginx / │
-│ Load Balancer│
-└──────┬──────┘
-│
-┌─────────┼─────────┐
-▼ ▼ ▼
-┌───────┐ ┌───────┐ ┌───────┐
-│back-1 │ │back-2 │ │back-N │
-└───────┘ └───────┘ └───────┘
+```mermaid
+graph TB
+    Client[" Клиенты"]
+    LB[" Nginx / Load Balancer"]
+    B1[" backend-1"]
+    B2[" backend-2"]
+    B3[" backend-N"]
+    Redis[(" Redis<br/>shared cache")]
 
+    Client --> LB
+    LB --> B1
+    LB --> B2
+    LB --> B3
+    B1 --> Redis
+    B2 --> Redis
+    B3 --> Redis
+```
 #### 2. Кэш внешних запросов — обязательно
 Open-Meteo имеет лимит ~10 000 запросов/сутки с одного IP. 
 Кэш в Redis с TTL 30 мин даёт hitrate **> 95%**. Это **критично**: 
@@ -655,22 +667,28 @@ React-сборка отдаётся через CDN. Backend отдаёт тол�
 По месяцам. Раз в месяц создаётся новая партиция (скриптом). 
 Партиции старше 1 года → архивируются, но остаются доступными.
 
-
 ### 3.6. Итоговая схема развёртывания (docker-compose)
-┌────────────────────────────────────────────────────────────┐
-│ Docker host │
-│ │
-│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
-│ │ frontend │ │ backend │ │ worker │ │ beat │ │
-│ │ :80 │ │ :8000 │ │ │ │ │ │
-│ └──────────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ │
-│ │ │ │ │
-│ ┌──────────┐ ┌────┴─────┐ ┌────┴─────┐ │
-│ │ mailhog │ │PostgreSQL│ │ Redis │ │
-│ │ :8025 │ │ :5432 │ │ :6379 │ │
-│ └──────────┘ └──────────┘ └──────────┘ │
-└────────────────────────────────────────────────────────────┘
+
+```mermaid
+graph TB
+    subgraph Docker["Docker host"]
+        Frontend["frontend<br/>:80"]
+        Backend["backend<br/>:8000"]
+        Worker["worker<br/>(Celery)"]
+        Beat["beat<br/>(Celery)"]
+        PG[("PostgreSQL<br/>:5432")]
+        Redis[("Redis<br/>:6379")]
+        MailHog["mailhog<br/>:8025"]
+    end
+
+    Frontend --> Backend
+    Backend --> PG
+    Backend --> Redis
+    Worker --> Redis
+    Worker --> PG
+    Worker --> MailHog
+    Beat --> Redis
+```
 
 Запуск: `docker compose up --build` — одна команда, как требует 
 задание.
-
