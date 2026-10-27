@@ -216,3 +216,30 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# --- Environment ---
+.env
+!.env.example
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# --- Backend ---
+*.db
+*.sqlite3
+
+# --- Pytest ---
+.pytest_cache/
+.coverage
+htmlcov/
+
