@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  # 1. База данных PostgreSQL
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: weatherfit
+      POSTGRES_PASSWORD: weatherfit
+      POSTGRES_DB: weatherfit
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U weatherfit"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Кэш Redis
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. Тестовый SMTP-сервер (MailHog)
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "1025:1025" # SMTP порт
+      - "8025:8025" # Веб-интерфейс для чтения писем
+
+  # 4. Миграции (запускаются один раз и завершаются)
+  migrate:
+    build: ./backend
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+asyncpg://weatherfit:weatherfit@db:5432/weatherfit
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # 5. Основное приложение (FastAPI)
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://weatherfit:weatherfit@db:5432/weatherfit
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: super-secret-key-for-dev
+      OPEN_METEO_FORECAST_URL: https://api.open-meteo.com/v1/forecast
+      OPEN_METEO_AIR_QUALITY_URL: https://air-quality-api.open-meteo.com/v1/air-quality
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM: noreply@weatherfit.local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # 6. Celery Worker (выполняет задачи)
+  worker:
+    build: ./backend
+    command: celery -A app.worker.celery_app worker --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+asyncpg://weatherfit:weatherfit@db:5432/weatherfit
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: super-secret-key-for-dev
+      OPEN_METEO_FORECAST_URL: https://api.open-meteo.com/v1/forecast
+      OPEN_METEO_AIR_QUALITY_URL: https://air-quality-api.open-meteo.com/v1/air-quality
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM: noreply@weatherfit.local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # 7. Celery Beat (планировщик)
+  beat:
+    build: ./backend
+    command: celery -A app.worker.celery_app beat --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+asyncpg://weatherfit:weatherfit@db:5432/weatherfit
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: super-secret-key-for-dev
+      OPEN_METEO_FORECAST_URL: https://api.open-meteo.com/v1/forecast
+      OPEN_METEO_AIR_QUALITY_URL: https://air-quality-api.open-meteo.com/v1/air-quality
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM: noreply@weatherfit.local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
