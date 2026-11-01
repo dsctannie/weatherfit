@@ -34,11 +34,12 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
 
-    # 2. Таблица workouts (Alembic сам создаст тип ENUM 'sport' при создании колонки)
+    # 2. Таблица workouts
     op.create_table('workouts',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('sport', sa.Enum('RUN', 'BIKE', 'WORKOUT', name='sport'), nullable=False),
+        # Вот здесь мы говорим: "не создавай тип sport, если он уже есть"
+        sa.Column('sport', sa.Enum('RUN', 'BIKE', 'WORKOUT', name='sport', create_type=False), nullable=False),
         sa.Column('started_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('duration_min', sa.Integer(), nullable=False),
         sa.Column('weather_snapshot', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
@@ -67,7 +68,7 @@ def upgrade() -> None:
         sa.Column('window_start', sa.DateTime(timezone=True), nullable=False),
         sa.Column('window_end', sa.DateTime(timezone=True), nullable=False),
         sa.Column('notified_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('status', sa.Enum('ACTIVE', 'NOTIFIED', 'CANCELLED', name='subscriptionstatus'), nullable=False),
+        sa.Column('status', sa.Enum('ACTIVE', 'NOTIFIED', 'CANCELLED', name='subscriptionstatus', create_type=False), nullable=False),
         sa.ForeignKeyConstraint(['plan_id'], ['plans.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id')
     )
@@ -78,7 +79,7 @@ def upgrade() -> None:
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
         sa.Column('lat', sa.Float(), nullable=False),
         sa.Column('lon', sa.Float(), nullable=False),
-        sa.Column('source', sa.Enum('FORECAST', 'AIR_QUALITY', name='weathersource'), nullable=False),
+        sa.Column('source', sa.Enum('FORECAST', 'AIR_QUALITY', name='weathersource', create_type=False), nullable=False),
         sa.Column('date', sa.Date(), nullable=False),
         sa.Column('payload', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -94,8 +95,3 @@ def downgrade() -> None:
     op.drop_table('workouts')
     op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_table('users')
-    
-    # Удаляем ENUM-типы при откате
-    postgresql.ENUM(name='subscriptionstatus').drop(op.get_bind())
-    postgresql.ENUM(name='weathersource').drop(op.get_bind())
-    postgresql.ENUM(name='sport').drop(op.get_bind())
