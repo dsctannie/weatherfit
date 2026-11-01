@@ -18,17 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # 1. Создаем ENUM-типы (используем checkfirst=True, чтобы избежать ошибки, если они уже есть)
-    sport_enum = postgresql.ENUM('RUN', 'BIKE', 'WORKOUT', name='sport')
-    sport_enum.create(op.get_bind(), checkfirst=True)
-    
-    weather_source_enum = postgresql.ENUM('FORECAST', 'AIR_QUALITY', name='weathersource')
-    weather_source_enum.create(op.get_bind(), checkfirst=True)
-    
-    subscription_status_enum = postgresql.ENUM('ACTIVE', 'NOTIFIED', 'CANCELLED', name='subscriptionstatus')
-    subscription_status_enum.create(op.get_bind(), checkfirst=True)
-
-    # 2. Таблица users
+    # 1. Таблица users
     op.create_table('users',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('email', sa.String(length=255), nullable=False),
@@ -44,11 +34,11 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
 
-    # 3. Таблица workouts
+    # 2. Таблица workouts (Alembic сам создаст тип ENUM 'sport' при создании колонки)
     op.create_table('workouts',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('sport', sport_enum, nullable=False),
+        sa.Column('sport', sa.Enum('RUN', 'BIKE', 'WORKOUT', name='sport'), nullable=False),
         sa.Column('started_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('duration_min', sa.Integer(), nullable=False),
         sa.Column('weather_snapshot', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
@@ -57,7 +47,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id')
     )
 
-    # 4. Таблица plans
+    # 3. Таблица plans
     op.create_table('plans',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('user_id', postgresql.UUID(as_uuid=True), nullable=False),
@@ -69,10 +59,43 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id')
     )
 
-    # 5. Таблица subscriptions
+    # 4. Таблица subscriptions
     op.create_table('subscriptions',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('plan_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('window_index', sa.Integer(), nullable=False),
         sa.Column('window_start', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('window_end', sa.DateTime(timezone=True
+        sa.Column('window_end', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('notified_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('status', sa.Enum('ACTIVE', 'NOTIFIED', 'CANCELLED', name='subscriptionstatus'), nullable=False),
+        sa.ForeignKeyConstraint(['plan_id'], ['plans.id'], ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_subscriptions_window_start'), 'subscriptions', ['window_start'], unique=False)
+
+    # 5. Таблица weather_log
+    op.create_table('weather_log',
+        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column('lat', sa.Float(), nullable=False),
+        sa.Column('lon', sa.Float(), nullable=False),
+        sa.Column('source', sa.Enum('FORECAST', 'AIR_QUALITY', name='weathersource'), nullable=False),
+        sa.Column('date', sa.Date(), nullable=False),
+        sa.Column('payload', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.PrimaryKeyConstraint('id')
+    )
+
+
+def downgrade() -> None:
+    op.drop_table('weather_log')
+    op.drop_index(op.f('ix_subscriptions_window_start'), table_name='subscriptions')
+    op.drop_table('subscriptions')
+    op.drop_table('plans')
+    op.drop_table('workouts')
+    op.drop_index(op.f('ix_users_email'), table_name='users')
+    op.drop_table('users')
+    
+    # Удаляем ENUM-типы при откате
+    postgresql.ENUM(name='subscriptionstatus').drop(op.get_bind())
+    postgresql.ENUM(name='weathersource').drop(op.get_bind())
+    postgresql.ENUM(name='sport').drop(op.get_bind())
