@@ -34,24 +34,7 @@ services:
       - "1025:1025"
       - "8025:8025"
 
-  # 4. Миграции (запускаются один раз и завершаются)
-  migrate:
-    build: ./backend
-    command: python create_tables.py
-    environment:
-      DATABASE_URL: postgresql+asyncpg://weatherfit:weatherfit@db:5432/weatherfit
-      REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: super-secret-key-for-dev
-      OPEN_METEO_FORECAST_URL: https://api.open-meteo.com/v1/forecast
-      OPEN_METEO_AIR_QUALITY_URL: https://air-quality-api.open-meteo.com/v1/air-quality
-      SMTP_HOST: mailhog
-      SMTP_PORT: 1025
-      SMTP_FROM: noreply@weatherfit.local
-    depends_on:
-      db:
-        condition: service_healthy
-
-  # 5. Основное приложение (FastAPI)
+  # 4. Основное приложение (FastAPI)
   backend:
     build: ./backend
     ports:
@@ -66,12 +49,12 @@ services:
       SMTP_PORT: 1025
       SMTP_FROM: noreply@weatherfit.local
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
 
-  # 6. Фронтенд (React)
+  # 5. Фронтенд (React)
   frontend:
     build: ./frontend
     ports:
@@ -79,7 +62,7 @@ services:
     depends_on:
       - backend
 
-  # 7. Celery Worker (выполняет задачи)
+  # 6. Celery Worker (выполняет задачи)
   worker:
     build: ./backend
     command: celery -A app.worker.celery_app worker --loglevel=info
@@ -93,12 +76,12 @@ services:
       SMTP_PORT: 1025
       SMTP_FROM: noreply@weatherfit.local
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
 
-  # 8. Celery Beat (планировщик)
+  # 7. Celery Beat (планировщик)
   beat:
     build: ./backend
     command: celery -A app.worker.celery_app beat --loglevel=info
@@ -112,8 +95,8 @@ services:
       SMTP_PORT: 1025
       SMTP_FROM: noreply@weatherfit.local
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
 
