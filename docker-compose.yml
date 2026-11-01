@@ -37,7 +37,7 @@ services:
   # 4. Миграции (запускаются один раз и завершаются)
   migrate:
     build: ./backend
-    command: alembic upgrade head
+    command: python create_tables.py
     environment:
       DATABASE_URL: postgresql+asyncpg://weatherfit:weatherfit@db:5432/weatherfit
       REDIS_URL: redis://redis:6379/0
