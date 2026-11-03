@@ -1,0 +1,59 @@
+name: WeatherFit CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: weatherfit
+          POSTGRES_PASSWORD: weatherfit
+          POSTGRES_DB: weatherfit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
+
+    - name: Run unit tests
+      env:
+        DATABASE_URL: postgresql+asyncpg://weatherfit:weatherfit@localhost:5432/weatherfit
+        REDIS_URL: redis://localhost:6379/0
+        JWT_SECRET: test-secret-key-for-ci
+        OPEN_METEO_FORECAST_URL: https://api.open-meteo.com/v1/forecast
+        OPEN_METEO_AIR_QUALITY_URL: https://air-quality-api.open-meteo.com/v1/air-quality
+        SMTP_HOST: localhost
+        SMTP_PORT: 1025
+        SMTP_FROM: test@weatherfit.local
+      working-directory: ./backend
+      run: |
+        pytest tests/ -v
